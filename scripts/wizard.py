@@ -14,7 +14,20 @@ import zipfile
 STEPS = ['故事采集','文案写作包与初稿','新人确认文案','配音音色试听','完整旁白',
          '分镜设计','三个重点分镜试图','剩余分镜生图','图生视频','BGM 风格试听',
          '配音与 BGM 片段','完整混音','带字幕预览','正式成片交付']
+STEPS_EN = ['Story intake','Writing pack and draft','Couple script approval','Voice auditions','Full narration',
+            'Storyboard','Three pilot images','Remaining images','Image-to-video','Music style auditions',
+            'Voice and music excerpts','Full audio mix','Subtitled preview','Final delivery']
 STATE='PROJECT_STATE.json'
+
+def language(state):return state.get('language','zh')
+
+def set_language(project,lang):
+    if lang not in ('zh','en'):raise ValueError('Supported interface languages: zh, en')
+    s=validate(project)
+    s.setdefault('content_language',s.get('language','zh'))
+    s['history'].append({'at':now(),'action':'interface-language','from':language(s),'to':lang})
+    s['language']=lang
+    save(project,s);return s
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def sha(path):
@@ -39,13 +52,14 @@ def save(project,state):
         json.dump(state,f,ensure_ascii=False,indent=2); f.write('\n'); tmp=f.name
     os.replace(tmp,root/STATE)
 
-def init(project):
+def init(project,lang='zh',content_language=None):
+    if lang not in ('zh','en') or content_language not in (None,'zh','en'):raise ValueError('Supported languages: zh, en')
     root=Path(project).resolve()
     skill=Path(__file__).resolve().parents[1]
     if root==skill or skill in root.parents: raise ValueError('订单目录不能在 Skill 源码/安装目录内')
     if (root/STATE).exists(): raise ValueError('已有项目，请续做，不覆盖状态')
     root.mkdir(parents=True,exist_ok=True)
-    s={'schema_version':1,'created_at':now(),'current_step':1,'completed':False,
+    s={'schema_version':1,'created_at':now(),'current_step':1,'completed':False,'language':lang,'content_language':content_language or lang,
        'steps':{str(i):{'name':n,'status':'not_started','artifacts':[], 'approvals':[]} for i,n in enumerate(STEPS,1)},'history':[]}
     save(root,s); return s
 
@@ -126,6 +140,10 @@ def reopen(project,n,affected,reason):
 
 def summary(project):
     s=validate(project); n=s['current_step']; r=s['steps'][str(n)]
+    if language(s)=='en':
+        names={'not_started':'Not started','awaiting_confirmation':'Awaiting approval','needs_review':'Needs revision','confirmed':'Approved'}
+        status='Accepted by the couple' if s['completed'] else names[r['status']]
+        return f'[{n}/14 | {STEPS_EN[n-1]} | {status} | {14-n} steps remaining]'
     names={'not_started':'未开始','awaiting_confirmation':'待确认','needs_review':'需要修改','confirmed':'已确认'}
     status='新人已验收' if s['completed'] else names[r['status']]
     return f'【{n}/14｜{STEPS[n-1]}｜{status}｜后续还剩 {14-n} 步】'
@@ -158,10 +176,13 @@ def zip_new(project,out,entries):
     return out
 
 def writing_pack(project,prompt,out):
-    current(project,2)
+    s=current(project,2)
     p=inside(project,prompt); text=p.read_text(encoding='utf-8')
     if not text.strip() or re.search(r'\{\{[^}]+\}\}|\[待填\]|TODO',text):
         raise ValueError('写作包仍为空或包含未填占位符')
+    if language(s)=='en':
+        return zip_new(project,out,{'00-README.txt':('Kimi K3 is strongly recommended. Open 01-Copy-to-Kimi-K3.txt, copy the complete text into a Kimi conversation, and return the full draft to the current production conversation. The creator reviews it first; the couple must then approve that exact version before production continues.\n').encode(),
+                                  '01-Copy-to-Kimi-K3.txt':text.encode()})
     return zip_new(project,out,{'00-使用说明.txt':'建议使用 Kimi K3。打开 01 文件，全选复制到 Kimi 对话，取得完整初稿后发回当前制作对话。先由制作方审稿，再发新人确认。\n'.encode(),
                               '01-一键复制给Kimi-K3.txt':text.encode()})
 
@@ -178,6 +199,8 @@ def video_pack(project,manifest,out):
         raise ValueError('镜号重复、缺失或与确认计划不一致')
     approved={a['sha256'] for n in ('7','8') for a in s['steps'][n]['artifacts']}
     entries={'00-使用说明.txt':'每镜一个文件夹。上传本镜首帧图片，复制视频提示词，按提示词设置时长和画幅。确认模型入口能固定首帧；普通参考槽不一定等价。生成后完整自查，再按镜号发回当前对话。此包不授权自动生图。\n'.encode()}
+    en=language(s)=='en'
+    if en:entries={'00-README.txt':('Each shot has its own folder. Upload its first-frame image to your video model, paste video-prompt.txt, and set the requested duration and aspect ratio. Verify that the input fixes the first frame; a generic reference slot may not. Watch the whole result, then return the video with its shot ID to the current conversation. This package does not authorize automated image generation.\n').encode()}
     for shot in shots:
         ident=str(shot['id'])
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',ident): raise ValueError('不安全的镜号')
@@ -193,14 +216,17 @@ def video_pack(project,manifest,out):
         except Exception:raise ValueError('首帧不是可解码图片，先补回原图：'+ident) from None
         prompt=inside(project,shot['prompt']).read_text(encoding='utf-8')
         if not prompt.strip() or re.search(r'\{\{[^}]+\}\}|\[待填\]|TODO',prompt): raise ValueError('视频提示词为空或有占位符：'+ident)
-        entries[f'{ident}/首帧参考图{pic.suffix.lower()}']=pic.read_bytes()
-        entries[f'{ident}/视频提示词.txt']=prompt.encode()
+        entries[f'{ident}/'+('first-frame' if en else '首帧参考图')+pic.suffix.lower()]=pic.read_bytes()
+        entries[f'{ident}/'+('video-prompt.txt' if en else '视频提示词.txt')]=prompt.encode()
     return zip_new(project,out,entries)
 
 def main():
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest='cmd',required=True)
     for name in ('init','summary','validate'):
         q=sub.add_parser(name); q.add_argument('project',type=Path)
+        if name=='init':
+            q.add_argument('--lang',choices=['zh','en'],default='zh');q.add_argument('--content-language',choices=['zh','en'])
+    q=sub.add_parser('language');q.add_argument('project',type=Path);q.add_argument('--lang',choices=['zh','en'],required=True)
     q=sub.add_parser('prepare'); q.add_argument('project',type=Path); q.add_argument('--step',type=int,required=True); q.add_argument('--files',nargs='+',required=True)
     q=sub.add_parser('approve'); q.add_argument('project',type=Path); q.add_argument('--step',type=int,required=True); q.add_argument('--by',choices=['producer','couple'],required=True); q.add_argument('--evidence',required=True)
     q=sub.add_parser('reopen'); q.add_argument('project',type=Path); q.add_argument('--step',type=int,required=True); q.add_argument('--affected',nargs='*',type=int); q.add_argument('--reason',required=True)
@@ -208,9 +234,10 @@ def main():
     for name,arg in [('writing-pack','prompt'),('video-pack','manifest')]:
         q=sub.add_parser(name); q.add_argument('project',type=Path); q.add_argument('--'+arg,required=True); q.add_argument('--out',required=True)
     a=p.parse_args()
-    if a.cmd=='init': init(a.project); print(summary(a.project))
+    if a.cmd=='init': init(a.project,a.lang,a.content_language); print(summary(a.project))
+    elif a.cmd=='language':set_language(a.project,a.lang);print(summary(a.project))
     elif a.cmd=='summary': print(summary(a.project))
-    elif a.cmd=='validate': validate(a.project); print('状态与已确认文件一致')
+    elif a.cmd=='validate': print('State and approved files match' if language(validate(a.project))=='en' else '状态与已确认文件一致')
     elif a.cmd=='prepare': prepare(a.project,a.step,a.files); print(summary(a.project))
     elif a.cmd=='approve': approve(a.project,a.step,a.by,a.evidence); print(summary(a.project))
     elif a.cmd=='reopen': reopen(a.project,a.step,a.affected,a.reason); print(summary(a.project))

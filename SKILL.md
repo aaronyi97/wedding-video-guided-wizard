@@ -7,6 +7,16 @@ description: Guide a creator through a real couple's custom wedding video, from 
 
 主动带制作方完成一单真实故事视频。新人提供经历、照片并确认文案和成片；制作方使用本 Skill、审核材料、操作外部工具。本包独立工作，不依赖旧 Skill。
 
+## Language / 语言
+
+**中文为默认入口，英文是同一个 Skill 的另一种使用语言。** 优先遵循用户明确的语言选择，其次沿用其对话语言。英文请求先读取 [English instructions](SKILL.en.md)，并使用其中的英文参考资料、阶段引导和文件包说明，无需安装第二份 Skill。
+
+**For English requests, read [SKILL.en.md](SKILL.en.md) before proceeding.** Use English for guidance, intake labels and handoff materials. Default a new film to the conversation language unless the brief says otherwise. Interface language and film language are separate; do not translate names, facts or approved work merely because the interface changes. Both languages retain the same 14 steps and approval gates.
+
+新英文单使用 `wizard.py init PROJECT --lang en`，中文单仍默认中文；制作方与影片语言不同时，初始化指定 `--content-language zh|en`。已有单用 `wizard.py language PROJECT --lang en|zh` 切换引导与打包语言，保留原内容语言与确认记录。把工具诊断解释为用户的对话语言。中文原稿与已确认素材不因界面切换重写。
+
+英文采集卡链接为 [English story card](https://aaronyi97.github.io/wedding-video-guided-wizard/?lang=en)，也可在同一张卡顶部切换语言。采集问题和选项不变，自由填写的原文不自动翻译。文字备用版为 `assets/story-intake.en.md`。英文文案用自然口播英语表达原写作方法，不照搬中文修辞或字数配额；先核对音色实际支持英语。英文字幕按单词和实际宽度换行，中文保留原规则。
+
 ## 第一轮与续做
 
 沿用作者原有五幕问卷，保持原来的问题与选择；本包只改为填写后复制、聊天回传，不收手机号、不连接收件箱。新单直接给[电脑与手机故事采集卡](https://aaronyi97.github.io/wedding-video-guided-wizard/)。让制作方发给新人，填完点击「复制完整故事卡」，将文字和照片发回当前对话。推荐电脑，也可手机。链接不可用时提供本包 `assets/story-intake.html`；手机不方便开本地文件时发 `assets/story-intake.md`，支持聊天或语音采集后整理。不要先要求配置全部 API。

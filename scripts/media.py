@@ -33,15 +33,18 @@ def probe(path):
 
 def duration(path): return float(probe(path)['format']['duration'])
 
-def font_path():
+def font_path(language='zh'):
     candidates=[os.environ.get('WEDDING_FONT',''),'/System/Library/Fonts/PingFang.ttc','/System/Library/Fonts/STHeiti Medium.ttc',
       '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc','C:/Windows/Fonts/msyh.ttc']
+    if language=='en':
+        candidates=[os.environ.get('WEDDING_FONT',''),'/System/Library/Fonts/Supplemental/Arial.ttf',
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','C:/Windows/Fonts/arial.ttf']+candidates[1:]
     return next((x for x in candidates if x and Path(x).is_file()),None)
 
 def doctor():
     return {'python':sys.version.split()[0], 'ffmpeg':os.environ.get('FFMPEG_BIN') or shutil.which('ffmpeg'),
      'ffprobe':os.environ.get('FFPROBE_BIN') or shutil.which('ffprobe'),
-     'pillow':importlib.util.find_spec('PIL') is not None,'chinese_font':font_path(),
+     'pillow':importlib.util.find_spec('PIL') is not None,'chinese_font':font_path(),'english_font':font_path('en'),
      'kimi_configured':bool(os.environ.get('MOONSHOT_API_KEY')),
      'doubao_configured':bool(os.environ.get('DOUBAO_API_KEY') or (os.environ.get('DOUBAO_APP_ID') and os.environ.get('DOUBAO_ACCESS_KEY'))),
      'image_route':'external-gpt-manual-only','note':'配置存在不代表账号权限、余额或已授权付费调用'}
@@ -188,17 +191,30 @@ def stamp(t):
     ms=round(t*1000);h,ms=divmod(ms,3600000);m,ms=divmod(ms,60000);s,ms=divmod(ms,1000)
     return f'{h:02}:{m:02}:{s:02},{ms:03}'
 
-def captions(cues,width,height,folder,font):
+def caption_lines(text,face,max_width,language='zh'):
+    wrapped=[]
+    for line in str(text).splitlines():
+        if language=='en':
+            current=''
+            for word in line.split():
+                box=face.getbbox(word,stroke_width=2)
+                if box[2]-box[0]>max_width:raise ValueError('A subtitle word exceeds the safe width; split the cue or adjust its layout')
+                proposed=(current+' '+word).strip();box=face.getbbox(proposed,stroke_width=2)
+                if current and box[2]-box[0]>max_width:wrapped.append(current);current=word
+                else:current=proposed
+            if current:wrapped.append(current)
+        else:
+            while len(line)>18:wrapped.append(line[:18]);line=line[18:]
+            if line:wrapped.append(line)
+    if len(wrapped)>2:raise ValueError('Subtitle exceeds two lines; split it into shorter timed cues' if language=='en' else '字幕过长，请按实际语义拆成更短时间段')
+    return wrapped
+
+def captions(cues,width,height,folder,font,language='zh'):
     try: from PIL import Image, ImageDraw, ImageFont
     except ImportError:raise ValueError('字幕渲染缺少 Pillow；运行 python3 -m pip install Pillow 后继续')
     face=ImageFont.truetype(font,max(20,round(height*.05)))
     for i,cue in enumerate(cues):
-        txt=str(cue['text']); lines=txt.splitlines()
-        wrapped=[]
-        for line in lines:
-            while len(line)>18:wrapped.append(line[:18]);line=line[18:]
-            if line:wrapped.append(line)
-        if len(wrapped)>2:raise ValueError('字幕过长，请按实际语义拆成更短时间段')
+        wrapped=caption_lines(cue['text'],face,width*.88,language)
         im=Image.new('RGBA',(width,height),(0,0,0,0));d=ImageDraw.Draw(im)
         text='\n'.join(wrapped)
         box=d.multiline_textbbox((0,0),text,font=face,stroke_width=2,spacing=6)
@@ -222,8 +238,10 @@ def assemble(project,plan_path,out):
     if any(not isinstance(x,int) or x<=0 for x in (width,height,fps)) or width%2 or height%2:raise ValueError('画幅或帧率无效')
     validate_timeline(shots,total,tolerance=.5/fps+.000001);validate_cues(cues,total)
     if any(abs(t*fps-round(t*fps))>.01 for s in shots for t in (s['start'],s['end'])):raise ValueError('镜头切点必须对齐目标帧率')
-    font=font_path()
-    if not font:raise ValueError('缺少中文字体，请设置 WEDDING_FONT 为可用中文字体文件')
+    subtitle_language=plan.get('subtitle_language',state.get('content_language','zh'))
+    if subtitle_language not in ('zh','en'):raise ValueError('Supported subtitle languages: zh, en')
+    font=font_path(subtitle_language)
+    if not font:raise ValueError('Set WEDDING_FONT to a readable font file for the subtitle language')
     allowed={a['sha256'] for a in state['steps']['9']['artifacts']}
     paths=[]
     for s in shots:
@@ -239,7 +257,7 @@ def assemble(project,plan_path,out):
             run([binary('ffmpeg'),'-v','error','-n','-i',v,'-an','-vf',vf,'-t',target,'-c:v','libx264','-crf','18',part]);parts.append(part)
         (td/'concat.txt').write_text(''.join(f"file '{x.name}'\n" for x in parts))
         run([binary('ffmpeg'),'-v','error','-n','-f','concat','-safe','1','-i',td/'concat.txt','-c','copy',td/'picture.mp4'])
-        captions(cues,width,height,td,font)
+        captions(cues,width,height,td,font,subtitle_language)
         # Bound inputs per render so long scripts do not exhaust file descriptors.
         previous=td/'picture.mp4'
         for batch in range(0,len(cues),12):

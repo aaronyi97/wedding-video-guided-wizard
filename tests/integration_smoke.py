@@ -10,10 +10,10 @@ from PIL import Image
 spec=importlib.util.spec_from_file_location('media',Path(__file__).resolve().parents[1]/'scripts/media.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);w=m.w
 
-def main(project):
+def main(project,lang="zh"):
     project=project.resolve()
     if project.exists():raise ValueError('Use a fresh output directory for synthetic tests')
-    w.init(project)
+    w.init(project,lang)
     def text(name,body):
         p=project/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(body,encoding='utf-8');return p
     def js(name,data):return text(name,json.dumps(data,ensure_ascii=False,indent=2))
@@ -21,9 +21,9 @@ def main(project):
         w.prepare(project,n,files);w.approve(project,n,'couple' if n==3 else 'producer','SYNTHETIC TEST ONLY: simulated approval, no real customer')
     facts=text('FACTS.md','Synthetic fixture. Two invented labels for software tests only. No customer data.')
     accept(1,[facts])
-    prompt=text('WRITING_PROMPT.txt','仅用于软件检查的合成输入。\n任务：生成两句测试文字，非客户故事。')
+    prompt=text('WRITING_PROMPT.txt','Synthetic software test only. Write two test lines, not a customer story.' if lang=='en' else '仅用于软件检查的合成输入。\n任务：生成两句测试文字，非客户故事。')
     writing=w.writing_pack(project,prompt,'writing.zip')
-    script=text('SCRIPT.txt','合成测试。字幕与声音只是测试素材。')
+    script=text('SCRIPT.txt','Every ordinary afternoon became part of their shared story. This is synthetic test material.' if lang=='en' else '合成测试。字幕与声音只是测试素材。')
     accept(2,[writing,prompt,script]);accept(3,[script])
     direction=text('direction.txt','合成测试，不调用语音服务')
     selection=js('VOICE_SELECTION.json',{'voice':'synthetic','rate':0,'instructions':'direction.txt','instructions_sha256':w.sha(direction),'source_script':'SCRIPT.txt','source_script_sha256':w.sha(script)})
@@ -38,12 +38,12 @@ def main(project):
     for i,color in enumerate(['#445577','#a87868'],1):
         pic=project/f'S0{i}.png';Image.new('RGB',(640,360),color).save(pic);images.append(pic)
     accept(7,[images[0]]);accept(8,images)
-    prompts=[text(f'S0{i}-video.txt',f'合成测试 S0{i}：保持首帧，轻微推近，无人声。') for i in (1,2)]
+    prompts=[text(f'S0{i}-video.txt',(f'Synthetic S0{i}: preserve the first frame, gentle push-in, no voices.' if lang=='en' else f'合成测试 S0{i}：保持首帧，轻微推近，无人声。')) for i in (1,2)]
     manifest=js('VIDEO_PACK.json',{'plan':'SHOT_PLAN.json','shots':[{'id':f'S0{i}','image':images[i-1].name,'prompt':prompts[i-1].name} for i in (1,2)]})
     vp=w.video_pack(project,manifest,'videos.zip')
     with zipfile.ZipFile(vp) as z:
-        assert z.read('S01/视频提示词.txt').decode()==prompts[0].read_text()
-        assert z.read('S02/首帧参考图.png')==images[1].read_bytes()
+        assert z.read('S01/video-prompt.txt' if lang=='en' else 'S01/视频提示词.txt').decode()==prompts[0].read_text()
+        assert z.read('S02/first-frame.png' if lang=='en' else 'S02/首帧参考图.png')==images[1].read_bytes()
     videos=[]
     for i,pic in enumerate(images,1):
         video=project/f'S0{i}.mp4';m.run([m.binary('ffmpeg'),'-v','error','-n','-loop','1','-i',pic,'-t','6','-r','24','-an','-c:v','libx264','-pix_fmt','yuv420p',video]);videos.append(video)
@@ -57,7 +57,7 @@ def main(project):
     full=m.mix(project,voice,music,'full.wav');accept(12,[full,full.with_suffix('.mix.json')])
     data={'storyboard':'SHOT_PLAN.json','audio':'full.wav','width':640,'height':360,'fps':24,
         'shots':[{'id':f'S0{i}','file':video.name,'in':0,'out':3,'start':(i-1)*3,'end':i*3} for i,video in enumerate(videos,1)],
-        'cues':[{'start':.25,'end':2.5,'text':'合成测试：第一段'},{'start':3.3,'end':5.75,'text':'第二段，字幕已烧录'}]}
+        'subtitle_language':lang,'cues':[{'start':.25,'end':2.5,'text':'Every ordinary afternoon became part of their shared story.' if lang=='en' else '合成测试：第一段'},{'start':3.3,'end':5.75,'text':'English subtitles, with words kept intact.' if lang=='en' else '第二段，字幕已烧录'}]}
     edl=js('EDIT_PLAN.json',data)
     bad={**data,'shots':[{**data['shots'][0],'out':6,'end':6}]}
     try:m.assemble(project,js('BAD_EDIT.json',bad),'omitted.mp4')
@@ -76,7 +76,7 @@ def main(project):
     assert not w.load(project)['completed']
     w.approve(project,14,'couple','SYNTHETIC simulated final acceptance');assert w.validate(project)['completed']
     screenshot=project/'subtitle-check.png';m.run([m.binary('ffmpeg'),'-v','error','-n','-ss','1','-i',film,'-frames:v','1',screenshot])
-    report={'synthetic_only':True,'paid_calls':0,'frames':144,'seconds':6,'size':[640,360],'audio':'48kHz stereo','full_14_step_receipts':True,'writing_zip':True,'actual_image_video_prompt_zip':True,'mix_gate':True,'all_shots_required':True,'subtitles_burned':True,'human_status_not_auto_approved':True}
+    report={'language':lang,'synthetic_only':True,'paid_calls':0,'frames':144,'seconds':6,'size':[640,360],'audio':'48kHz stereo','full_14_step_receipts':True,'writing_zip':True,'actual_image_video_prompt_zip':True,'mix_gate':True,'all_shots_required':True,'subtitles_burned':True,'human_status_not_auto_approved':True}
     js('TEST_REPORT.json',report);print(json.dumps(report,ensure_ascii=False))
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);main(p.parse_args().output)
+    p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--lang',choices=['zh','en'],default='zh');a=p.parse_args();main(a.output,a.lang)
