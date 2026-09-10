@@ -1,0 +1,4 @@
+interface:
+  display_name: "婚礼视频定制向导"
+  short_description: "从故事采集到带字幕成片的十四步向导，主动引导并逐步确认"
+  default_prompt: "使用 $wedding-video-guided-wizard 开始一单婚礼视频，请先给我可以转发给新人的故事采集卡，并逐步带我完成。"

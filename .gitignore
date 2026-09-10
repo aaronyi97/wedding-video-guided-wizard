@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*
+!.env.example
+work/
+outputs/
+PROJECT_STATE.json
+projects/
+node_modules/

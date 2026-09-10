@@ -1,0 +1,36 @@
+// Run against a served docs/ directory; npm install --no-save playwright if needed.
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+(async () => {
+  const browser = await chromium.launch({headless:true,...(process.env.BROWSER_BIN?{executablePath:process.env.BROWSER_BIN}:{})});
+  const context = await browser.newContext({viewport:{width:390,height:844}});
+  const page = await context.newPage();
+  const errors = [], requests=[];
+  page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
+  await page.goto(process.env.CARD_URL||'http://127.0.0.1:8734');
+  assert.equal(await page.locator('input[type=tel],input[type=file],#btnSubmit').count(),0);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async t=>{window.copied=t}},configurable:true}));
+  await page.click('#btnCopy');assert.equal(await page.evaluate(()=>window.copied),undefined);
+  for (const [id,value] of Object.entries({groom:'测试甲',bride:'测试乙',a1_fill:'测试事实：朋友聚会认识。',a1_extra:'记不清',a2_fill:'没有单独事件',a3_fill:'自然在一起，没有表白',a4_fill:'每周一起做饭',a5_fill:'一起认真生活',notes:'只测试填写，不是真实客户资料。',avoid:'不写虚构经历',swap:'不需要换幕',add_thing_t:'真实票根'})) await page.locator('#'+id).fill(value);
+  for(const [name,value] of Object.entries({occasion:'仪式前暖场',style:'水彩绘本',styleMode:'真人出镜+动画环境',a1_pick:'朋友介绍',a2_pick:'其他',a3_pick:'其他',a4_pick:'一起做饭',a5_venue:'其他',a5_pick:'拥抱',music:'制作方定制'})) await page.locator(`input[name="${name}"][value="${value}"]`).check({force:true});
+  for(const [id,value] of Object.entries({a2_pick_other:'没有这类事件',a3_pick_other:'自然确认关系',a5_venue_other:'婚礼场地尚未确定'})) await page.locator('#'+id).fill(value);
+  await page.click('#btnCopy');const copied=await page.evaluate(()=>window.copied);
+  for(const text of ['测试甲','测试乙','真实票根','没有这类事件','自然确认关系','婚礼场地尚未确定','只测试填写','不写虚构经历','不需要换幕','一起认真生活','未填：无']) assert.ok(copied.includes(text),text);
+  assert.ok(!copied.includes('缩小版随卡提交'));assert.ok(!copied.includes('手机号'));
+  await page.reload();assert.equal(await page.locator('#groom').inputValue(),'测试甲');
+  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw new Error('blocked')}},configurable:true}));
+  await page.click('#btnCopy');assert.equal(await page.locator('#copyFallback').inputValue(),copied);assert.ok(await page.locator('#copyFallback').isVisible());
+  if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,'intake-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1280,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,'intake-desktop.png'),fullPage:true});
+  page.once('dialog',d=>d.dismiss());await page.click('#btnClear');assert.equal(await page.locator('#groom').inputValue(),'测试甲');
+  page.once('dialog',d=>d.accept());await page.click('#btnClear');assert.equal(await page.locator('#groom').inputValue(),'');
+  await page.reload();assert.equal(await page.locator('#groom').inputValue(),'');
+  await page.addInitScript(()=>Object.defineProperty(window,'localStorage',{get(){throw new Error('unavailable')}}));await page.reload();await page.locator('#groom').fill('无存储仍能填写');
+  assert.ok((await page.locator('#submitTip').innerText()).includes('不能保存草稿'));
+  assert.deepEqual(errors,[]);
+  assert.ok(requests.every(u=>u.startsWith(process.env.CARD_URL||'http://127.0.0.1:8734')));
+  await browser.close();console.log(JSON.stringify({passed:true,checks:['mobile and desktop','no contact/upload/backend fields','incomplete card blocked','copy all entered answers','other and no-event','draft restore','clipboard fallback','safe clear','localStorage unavailable','no external requests','no JS errors']}));
+})().catch(e=>{console.error(e);process.exit(1)});
