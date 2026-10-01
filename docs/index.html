@@ -237,8 +237,11 @@ html[lang="en"] .card-b{word-break:normal;overflow-wrap:anywhere}
     <div class="card-f">
       <div class="btns">
         <button class="btn primary" id="btnCopy" type="button">复制故事卡</button>
+        <button class="btn" id="btnSb" type="button">生成分镜预览</button>
       </div>
       <textarea id="copyFallback" aria-label="完整故事卡，可长按全选复制" readonly hidden></textarea>
+      <div class="sb-head" id="sbHead" hidden>分镜预览（制作方用，点一下可全选复制）</div>
+      <textarea id="sbFallback" aria-label="分镜预览，点一下全选复制" readonly hidden rows="16"></textarea>
       <div class="tip" id="submitTip">复制后把故事卡和原图一起发给制作方。</div>
     </div>
   </div>
@@ -328,6 +331,10 @@ const EN = {
   "故事卡": "Your story card",
   "答一题，改一行。填完后复制，通过微信发回制作方。": "Your card updates as you answer. When finished, copy it and send it to your creator.",
   "复制故事卡": "Copy story card",
+  "生成分镜预览": "Storyboard preview",
+  "分镜预览（制作方用，点一下可全选复制）": "Storyboard preview (click to select all)",
+  "已生成分镜预览": "Storyboard generated",
+  "分镜预览已复制": "Storyboard copied",
   "完整故事卡，可长按全选复制": "Complete story card; select all and copy",
   "复制后把故事卡和原图一起发给制作方。": "Send the copied card to your creator, with original photos as separate attachments.",
   "宽屏 16:9（默认，现场大屏）": "Landscape 16:9 (default, venue screen)",
@@ -584,9 +591,88 @@ async function copyCard(){
   try{ await navigator.clipboard.writeText(t);toast(tr('已复制，把故事卡和原图通过微信发回制作方')); }
   catch(e){ const el=$('#copyFallback');el.value=t;el.hidden=false;el.focus();el.select();el.setSelectionRange(0,t.length);toast(tr('请长按文字全选复制，电脑也可按 Ctrl / ⌘ + C')); }
 }
+/* ---- 分镜预览：故事卡 → 五幕分镜表 + 提示词（制作方用） ---- */
+const STYLE_KEY={
+  '写实电影感':'写实电影感, cinematic, 胶片颗粒, 自然光影',
+  '水彩绘本':'水彩绘本风, 手绘水彩质感, 柔和色调',
+  '纸艺折纸':'纸艺折纸风, 手工纸艺质感, 立体层次',
+  '黏土定格':'黏土定格动画风, 黏土模型质感, 手工感',
+  '可爱 3D 动画':'可爱3D动画风, 明亮色彩, 皮克斯质感'
+};
+function sbStyle(){
+  const s=pick('style');
+  const base=STYLE_KEY[s]||(s? s+'风':'写实电影感');
+  if(needMode()){ const m=pick('styleMode'); return m? base+'（'+m+'）':base; }
+  return base;
+}
+function sbRatio(){ const r=pick('ratio')||'16:9'; return r.indexOf('9:16')>=0?'9:16':'16:9'; }
+function sbTiming(){
+  return (pick('duration')||'').indexOf('180')>=0
+    ? [[0,10],[10,40],[40,70],[70,100],[100,130],[130,165],[165,180]]
+    : [[0,6],[6,20],[20,36],[36,52],[52,66],[66,84],[84,90]];
+}
+function sbNarration(a){
+  const p=pick(a.id+'_pick'), f=v(a.id+'_fill');
+  switch(a.id){
+    case 'a1': return '他们'+(p?('是'+p):'从小认识')+'，'+(f||'从那时起故事开始了')+'。';
+    case 'a2': return '后来，'+(f||'两个人越走越近')+'。';
+    case 'a3': return f||'那天，他们决定在一起。';
+    case 'a4': return (f||'把平凡的日子过成了诗')+'。';
+    default: return f||'这次，我在你身边。';
+  }
+}
+function buildStoryboard(){
+  build();
+  if(build.need.length){ toast(tr('请补充：')+build.need.join(comma)+tr('。没有或记不清可如实填写。')); return null; }
+  const T=[];
+  const ratio=sbRatio(), style=sbStyle(), dur=pick('duration')||'90 秒';
+  const couple=[v('groom'),v('bride')].filter(Boolean).join(' × ')||'新人';
+  const occasion=pick('occasion')||'—';
+  const notes=v('notes');
+  const seg=sbTiming();
+  T.push('【婚礼短片 · 分镜预览】');
+  T.push('称呼：'+couple+' ｜ 比例：'+ratio+' ｜ 时长：'+dur+' ｜ 画风：'+style+' ｜ 场合：'+occasion);
+  if(notes) T.push('风格参考：'+notes);
+  T.push('');
+  T.push('【开场 '+seg[0][0]+'-'+seg[0][1]+'s · 定场】');
+  T.push('画面：黑场渐显 → 名字浮现 → 空镜定调');
+  T.push('提示词：'+style+', 婚礼开场, 暖色调, '+ratio);
+  T.push('旁白：无（纯音乐起）');
+  T.push('');
+  SPEC.acts.forEach((a,i)=>{
+    const p=pick(a.id+'_pick'), f=v(a.id+'_fill');
+    const extra=a.extra?v(a.id+'_extra'):'';
+    const venue=a.venue?pick(a.id+'_venue'):'';
+    const t=seg[i+1];
+    T.push('【'+a.n+' '+a.name+' '+t[0]+'-'+t[1]+'s · '+(p||'待定')+'】');
+    const sc=[];
+    if(venue) sc.push('场地：'+venue);
+    if(p) sc.push('场景：'+p);
+    if(f) sc.push('细节：'+f);
+    if(extra) sc.push('记忆点：'+extra);
+    T.push('画面：'+sc.join('；'));
+    T.push('提示词：'+style+', '+[venue,p,f].filter(Boolean).join(', ')+', '+ratio);
+    T.push('旁白：'+sbNarration(a));
+    T.push('');
+  });
+  T.push('【片尾 '+seg[6][0]+'-'+seg[6][1]+'s · 落版】');
+  T.push('画面：名字 + 日期落版，"新婚快乐"');
+  T.push('提示词：婚礼落版, 简洁, 黑底金字');
+  T.push('');
+  T.push('附注：旁白为自动初稿，正式制作请人工润色；提示词适配即梦/可灵等中文生视频工具。');
+  return T.join('\n');
+}
 document.addEventListener('input', e=>{if(e.target.id==='copyFallback')return;$('#copyFallback').hidden=true;build();save();});
 document.addEventListener('change', ()=>{build();save();});
 $('#btnCopy').addEventListener('click',copyCard);
+$('#btnSb').addEventListener('click',()=>{
+  const t=buildStoryboard();
+  if(t==null) return;
+  const el=$('#sbFallback'), head=$('#sbHead');
+  el.value=t; el.hidden=false; head.hidden=false;
+  toast(tr('已生成分镜预览'));
+});
+$('#sbFallback').addEventListener('click',()=>{ const el=$('#sbFallback'); el.focus(); el.select(); });
 $('#btnClear').addEventListener('click',()=>{if(!confirm(tr('清空本机这份填写草稿？')))return;reset();try{localStorage.removeItem(KEY);}catch(e){}build();toast(tr('已清空'));});
 translateStatic();
 if(!load())reset();
